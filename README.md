@@ -1,121 +1,35 @@
-# Quantum-Informed PK Prediction — Evaluation Tools
+# Quantum-Informed PK Prediction
 
-Python utilities for evaluating molecular-property and human pharmacokinetic predictions. The tools support the five endpoints examined in *Quantum-Informed Graph and Mechanism-Factorized Networks for Structure-Based Prediction of Human Pharmacokinetic Parameters*.
+PyTorch code for GraphMPNN, mechanism-factorized molecular networks (MFMN), and conventional MLP baselines, with training, ensemble prediction, and evaluation utilities.
 
-## Features
-
-- **Prediction metrics:** R², MAE, RMSE, pKa accuracy within one unit (W1), geometric mean fold error (GMFE), and accuracy within two-fold (W2F).
-- **Ensemble evaluation:** Arithmetic averaging of compound-aligned predictions across random seeds (42–51 by default), with validation of seed coverage and reference values.
-- **Statistical comparison:** Compound-aligned paired bootstrap with percentile 95% confidence intervals (10,000 resamples by default).
-- **Input validation:** Checks for duplicate records, missing values, non-finite predictions, mismatched compounds, and unsupported endpoints.
-
-Supported endpoint identifiers: `pka_acidic`, `pka_basic`, `CL`, `VDss`, and `Fu`.
-
-## Installation
-
-Python 3.10 or newer is recommended.
+## Setup
 
 ```bash
-python -m venv .venv
-```
-
-Activate the environment:
-
-```bash
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-
-# macOS / Linux
-source .venv/bin/activate
-```
-
-Install dependencies and run the test suite:
-
-```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 python -m pytest -q
 ```
 
-## Input files
+## Training
 
-### Single-model predictions
-
-A CSV file with the following columns:
-
-```csv
-compound_id,endpoint,y_true,y_pred
-molecule_001,pka_acidic,7.50,7.42
-molecule_002,pka_acidic,8.10,8.28
-```
-
-The rows above illustrate the CSV structure; they are not experimental observations.
-
-- `compound_id`: unique molecular identifier.
-- `endpoint`: one of the five supported endpoint identifiers.
-- `y_true`: reference value.
-- `y_pred`: model prediction, in the same scale as the reference.
-
-For pKa, values are expressed in pKa units. For `CL`, `VDss`, and `Fu`, use **log10-transformed values** by default. If these pharmacokinetic parameters are supplied as positive, untransformed values, specify `--scale linear` when scoring. Values for `Fu` must lie in (0, 1] when supplied on the linear scale.
-
-### Ensemble predictions
-
-Include an additional `seed` column:
-
-```csv
-compound_id,endpoint,seed,y_true,y_pred
-molecule_001,pka_basic,42,8.00,8.10
-molecule_001,pka_basic,43,8.00,7.90
-```
-
-Provide the same compound IDs for each selected seed. The default seed set is 42 through 51.
-
-## Commands
-
-### Evaluate predictions
+Use prepared benchmark features and the official train/test partitions.
 
 ```bash
-python scripts/evaluate_predictions.py --input /path/to/predictions.csv --output metrics.csv
+# MFMN: clearance
+python scripts/train_models.py --model mfmn --endpoint CL --config configs/mfmn_cl.json --input CL_features.csv --output runs/cl_mfmn
+
+# MLP baseline: clearance
+python scripts/train_models.py --model mlp --endpoint CL --config configs/mlp_cl.json --input CL_features.csv --output runs/cl_mlp
+
+# GraphMPNN: acidic pKa
+python scripts/train_models.py --model graphmpnn --endpoint pka_acidic --config configs/graphmpnn_acidic.json --input acidic_graphs.jsonl --output runs/pka_acidic
 ```
 
-For original-scale PK values:
+Additional configurations for basic pKa, VDss, and Fu are in `configs/`.
 
-```bash
-python scripts/evaluate_predictions.py --input /path/to/predictions.csv --output metrics.csv --scale linear
-```
+## Input format
 
-### Average predictions across seeds
+- **MFMN/MLP:** CSV with `compound_id`, `split`, `target`, `ctx__*`, and seven factor groups (`size__*`, `lipophilicity__*`, `ionization__*`, `polarity__*`, `binding__*`, `electronic__*`, `structural__*`). CL/VDss additionally require `aux__<factor>` targets.
+- **GraphMPNN:** JSONL with `compound_id`, `split`, `target`, `node_features` (36 values per atom), `edges` (8 values per bond), and `site_index`.
+- Targets for CL, VDss, and Fu are in log10 units. The internal validation fraction is 15%; ensemble seeds are 42–51 by default.
 
-```bash
-python scripts/ensemble_predictions.py --input /path/to/seed_predictions.csv --output ensemble.csv --expected-seeds 42,43,44,45,46,47,48,49,50,51
-```
-
-### Compare two models with paired bootstrap
-
-```bash
-python scripts/paired_bootstrap.py --proposed /path/to/ensemble.csv --reference /path/to/comparator.csv --output comparison.csv --resamples 10000
-```
-
-The comparison requires identical compound–endpoint records and identical reference values in both input files. Confidence intervals are unadjusted for multiple comparisons.
-
-## Repository contents
-
-```text
-quantum-informed-pk-prediction/
-├── .github/workflows/tests.yml
-├── scripts/
-│   ├── ensemble_predictions.py
-│   ├── evaluate_predictions.py
-│   ├── io_utils.py
-│   ├── metrics.py
-│   └── paired_bootstrap.py
-├── tests/test_metrics.py
-├── requirements.txt
-├── pyproject.toml
-└── README.md
-```
-
-## Scope
-
-This repository provides executable **evaluation and statistical-analysis utilities**. It does not contain the GraphMPNN or MFMN training and inference implementations, model checkpoints, benchmark datasets, or experimental prediction files. Predictions are supplied by the user through the CSV interfaces described above. No synthetic example is presented as a research result.
-
-Benchmark data should be obtained from its original provider in accordance with applicable access and redistribution conditions.
+Prepared descriptors, quantum-chemical feature generation, and benchmark data are not included. The model code was independently implemented from the manuscript description; the reported experimental scores have not been independently reproduced using this package.
